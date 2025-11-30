@@ -1,6 +1,9 @@
 #pragma once
 
 // PD-Stepper pins (ESP32-S3)
+#ifndef CONFIG_IDF_TARGET_ESP32S3
+#error "Select the ESP32S3 Dev Module board profile (ESP32-S3 target) before compiling."
+#endif
 constexpr int PIN_TMC_EN   = 21;   // LOW = enable driver
 constexpr int PIN_STEP     = 5;
 constexpr int PIN_DIR      = 6;
