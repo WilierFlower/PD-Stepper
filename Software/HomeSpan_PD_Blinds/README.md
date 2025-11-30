@@ -20,6 +20,7 @@ This example registers a HomeKit **WindowCovering** accessory for PD-Stepper (ES
   - [ESPAsyncWebServer] (Library Manager) - for web server
   - [ArduinoJson] (Library Manager) - for API communication
 - Board: **ESP32S3 Dev Module** (CDC on boot: Enabled)
+- The pins and timing assume the ESP32-S3 target; the sketch now emits a compile-time error if a non-S3 board profile is chosen.
 
 ## Pins (PD-Stepper)
 See `pd_pins.h`. Default I2C: SDA=8, SCL=9. TMC UART: TX=17, RX=18. DIAG=16. PG=15. PD CFG: 38/48/47.

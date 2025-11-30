@@ -137,8 +137,10 @@ void WebConfig_begin(){
   Serial.println("Web server started");
 }
 
-String WebConfig_getHTML(){
-  return R"(
+  String WebConfig_getHTML(){
+    // Use a raw string literal with a custom delimiter so the embedded HTML/JS doesn't
+    // need escaping and won't terminate early on the default ")" sequence.
+    return String(F(R"pdhtml(
 <!DOCTYPE html>
 <html>
 <head>
@@ -474,8 +476,8 @@ String WebConfig_getHTML(){
         updateStatus();
         updateInterval = setInterval(updateStatus, 2000);
     </script>
-</body>
+  </body>
 </html>
-)";
-}
+)pdhtml"));
+  }
 
