@@ -4,6 +4,15 @@
 // Encoder resolution
 constexpr int ENC_COUNTS_PER_REV = 4096;
 
+// PD Voltage options
+enum PDVoltage {
+  PD_5V  = 5,
+  PD_9V  = 9,
+  PD_12V = 12,
+  PD_15V = 15,
+  PD_20V = 20
+};
+
 // Default motion parameters (counts are encoder counts)
 struct MotionParams {
   float maxVel_cps   = 3000.0f;     // counts/sec
@@ -14,6 +23,7 @@ struct MotionParams {
   uint16_t runCurrent_mA  = 800;    // mA
   int8_t   stallThreshold  = 10;     // -64..63
   bool     stealthChop     = true;   // quiet low-speed mode
+  PDVoltage pdVoltage      = PD_12V; // PD voltage setting
 };
 
 // NVS space

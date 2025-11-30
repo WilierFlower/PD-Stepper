@@ -16,7 +16,14 @@ void Motion_setTargetPercent(int pct);
 int  Motion_getCurrentPercent();
 void Motion_halt();
 void Motion_home(bool& stallFlag);
+void Motion_homeMin(bool& stallFlag);  // Find min position using stall detection
 void Motion_saveNVS();
 void Motion_loadNVS();
 
 void Motion_serialCLI();  // parses and persists changes
+
+// Getters for web interface
+float Motion_getVelocity();
+float Motion_getAcceleration();
+void Motion_setVelocity(float vel);
+void Motion_setAcceleration(float acc);

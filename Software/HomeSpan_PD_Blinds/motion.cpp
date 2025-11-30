@@ -40,6 +40,7 @@ void Motion_saveNVS(){
   prefs.putFloat("amax", g_mp.maxAcc_cps2);
   prefs.putFloat("jmax", g_mp.maxJerk_cps3);
   prefs.putBool("stealth", g_mp.stealthChop);
+  prefs.putUChar("pdVolt", (uint8_t)g_mp.pdVoltage);
   prefs.end();
 }
 
@@ -55,6 +56,7 @@ void Motion_loadNVS(){
   g_mp.maxAcc_cps2    = prefs.getFloat("amax", g_mp.maxAcc_cps2);
   g_mp.maxJerk_cps3   = prefs.getFloat("jmax", g_mp.maxJerk_cps3);
   g_mp.stealthChop    = prefs.getBool("stealth", g_mp.stealthChop);
+  g_mp.pdVoltage      = (PDVoltage)prefs.getUChar("pdVolt", g_mp.pdVoltage);
   prefs.end();
 }
 
@@ -127,30 +129,51 @@ void Motion_halt(){
   acc_cps2=0; vel_cps=0;
 }
 
-void Motion_serialCLI(){
+void Motion_serialCLI() {
+  // Only react to lines that START WITH ':' so we don't steal HomeSpan console input (W, ?)
   if (!Serial.available()) return;
-  static String line;
-  while(Serial.available()){
-    char c=Serial.read();
-    if (c=='\n'||c=='\r'){
-      line.trim();
-      if (line.length()){
-        char cmd[16]; float val;
-        if (sscanf(line.c_str(), "%15s %f", cmd, &val)==2){
-          if (!strcmp(cmd,"cur"))   g_mp.runCurrent_mA=(uint16_t)val;
-          if (!strcmp(cmd,"vel"))   g_mp.maxVel_cps=val;
-          if (!strcmp(cmd,"acc"))   g_mp.maxAcc_cps2=val;
-          if (!strcmp(cmd,"jerk"))  g_mp.maxJerk_cps3=val;
-          if (!strcmp(cmd,"micro")) g_mp.microsteps=(uint16_t)val;
-          if (!strcmp(cmd,"stealth")) g_mp.stealthChop = (val>0.5f);
-          if (!strcmp(cmd,"stall")) g_mp.stallThreshold=(int8_t)val;
-          TMC_setDynamic(g_mp);
-          Motion_saveNVS();
-          Serial.println("OK");
-        }
+  if (Serial.peek() != ':') return;
+
+  Serial.read();  // consume leading ':'
+
+  String line;
+  unsigned long t0 = millis();
+  bool gotLine = false;
+
+  // Read up to 1s for a single line terminated by NL or CR
+  while (millis() - t0 < 1000 && !gotLine) {
+    while (Serial.available()) {
+      char c = (char)Serial.read();
+      if (c == 10 || c == 13) {  // '\n' or '\r' (numeric to avoid quoting issues)
+        gotLine = true;
+        break;
       }
-      line="";
-    } else line+=c;
+      line += c;
+    }
+    delay(2);
+  }
+
+  line.trim();
+  if (!line.length()) return;
+
+  char cmd[16]; float val = 0;
+  if (sscanf(line.c_str(), "%15s %f", cmd, &val) == 2) {
+    if      (!strcmp(cmd, "cur"))     g_mp.runCurrent_mA  = (uint16_t)val;
+    else if (!strcmp(cmd, "vel"))     g_mp.maxVel_cps     = val;
+    else if (!strcmp(cmd, "acc"))     g_mp.maxAcc_cps2    = val;
+    else if (!strcmp(cmd, "jerk"))    g_mp.maxJerk_cps3   = val;
+    else if (!strcmp(cmd, "micro"))   g_mp.microsteps     = (uint16_t)val;
+    else if (!strcmp(cmd, "stealth")) g_mp.stealthChop    = (val > 0.5f);
+    else if (!strcmp(cmd, "stall"))   g_mp.stallThreshold = (int8_t)val;
+    else {
+      Serial.println(F("Unknown cmd. Use :cur/:vel/:acc/:jerk/:micro/:stealth/:stall"));
+      return;
+    }
+    TMC_setDynamic(g_mp);
+    Motion_saveNVS();
+    Serial.println(F("OK"));
+  } else {
+    Serial.println(F("Usage: :cur 700 | :vel 2500 | :acc 8000 | :jerk 50000 | :micro 32 | :stealth 1 | :stall 10"));
   }
 }
 
@@ -188,4 +211,65 @@ void Motion_home(bool& stallFlag){
   // restore stealth choice
   g_mp.stealthChop = true;
   TMC_setDynamic(g_mp);
+}
+
+void Motion_homeMin(bool& stallFlag){
+  if (!PD_powerGood()) return;
+
+  // homing speed high enough for spreadCycle
+  g_mp.stealthChop = false;   // force spreadCycle for SG
+  TMC_setDynamic(g_mp);
+  TMC_enable(true);
+
+  unsigned long t0=millis();
+  stallFlag=false;
+  acc_cps2=0; vel_cps=0;
+
+  // drive downward (toward larger counts) to find min position
+  for(;;){
+    if ((millis()-t0) > HOMING_TIMEOUT_MS) break;
+    if (!PD_powerGood()) break;
+    if (stallIRQ){ stallFlag=true; stallIRQ=false; break; }
+
+    // push target far below current to keep moving down
+    setpoint_c = pos_c + 20000.0f;
+    integrateTowards(setpoint_c, 0.003f);
+    delay(3);
+    AS5600_readTotal(); pos_c = (float)AS5600_totalCounts;
+  }
+
+  // stop, set BOTTOM (min position)
+  Motion_halt();
+  AS5600_readTotal();
+  g_limits.bottom = AS5600_totalCounts;
+  if (!g_limits.set) {
+    // If limits not set yet, initialize top to current position
+    g_limits.top = AS5600_totalCounts;
+  }
+  g_limits.set = true;
+  Motion_saveNVS();
+
+  // restore stealth choice
+  g_mp.stealthChop = true;
+  TMC_setDynamic(g_mp);
+}
+
+float Motion_getVelocity(){
+  return g_mp.maxVel_cps;
+}
+
+float Motion_getAcceleration(){
+  return g_mp.maxAcc_cps2;
+}
+
+void Motion_setVelocity(float vel){
+  g_mp.maxVel_cps = vel;
+  TMC_setDynamic(g_mp);
+  Motion_saveNVS();
+}
+
+void Motion_setAcceleration(float acc){
+  g_mp.maxAcc_cps2 = acc;
+  TMC_setDynamic(g_mp);
+  Motion_saveNVS();
 }

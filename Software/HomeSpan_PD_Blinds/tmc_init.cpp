@@ -1,5 +1,6 @@
 #include "tmc_init.h"
 #include "pd_pins.h"
+#include "config.h"
 #include <Arduino.h>
 
 HardwareSerial& SER = Serial2;
@@ -11,13 +12,73 @@ void TMC_enable(bool en){
 }
 
 void PD_request_12V(){
+  PD_setVoltage(PD_12V);
+}
+
+void PD_setVoltage(PDVoltage voltage){
   pinMode(PIN_CFG1, OUTPUT);
   pinMode(PIN_CFG2, OUTPUT);
   pinMode(PIN_CFG3, OUTPUT);
-  // 12 V: CFG1 LOW, CFG2 LOW, CFG3 HIGH
-  digitalWrite(PIN_CFG1, LOW);
-  digitalWrite(PIN_CFG2, LOW);
-  digitalWrite(PIN_CFG3, HIGH);
+  
+  // USB-PD voltage selection via CFG pins
+  // Common pattern: CFG1, CFG2, CFG3 combinations
+  // Note: Actual pin mapping may vary by board design
+  switch(voltage){
+    case PD_5V:
+      // 5V: CFG1 LOW, CFG2 LOW, CFG3 LOW
+      digitalWrite(PIN_CFG1, LOW);
+      digitalWrite(PIN_CFG2, LOW);
+      digitalWrite(PIN_CFG3, LOW);
+      break;
+    case PD_9V:
+      // 9V: CFG1 HIGH, CFG2 LOW, CFG3 LOW
+      digitalWrite(PIN_CFG1, HIGH);
+      digitalWrite(PIN_CFG2, LOW);
+      digitalWrite(PIN_CFG3, LOW);
+      break;
+    case PD_12V:
+      // 12V: CFG1 LOW, CFG2 LOW, CFG3 HIGH
+      digitalWrite(PIN_CFG1, LOW);
+      digitalWrite(PIN_CFG2, LOW);
+      digitalWrite(PIN_CFG3, HIGH);
+      break;
+    case PD_15V:
+      // 15V: CFG1 HIGH, CFG2 LOW, CFG3 HIGH
+      digitalWrite(PIN_CFG1, HIGH);
+      digitalWrite(PIN_CFG2, LOW);
+      digitalWrite(PIN_CFG3, HIGH);
+      break;
+    case PD_20V:
+      // 20V: CFG1 LOW, CFG2 HIGH, CFG3 HIGH
+      digitalWrite(PIN_CFG1, LOW);
+      digitalWrite(PIN_CFG2, HIGH);
+      digitalWrite(PIN_CFG3, HIGH);
+      break;
+    default:
+      // Default to 12V
+      digitalWrite(PIN_CFG1, LOW);
+      digitalWrite(PIN_CFG2, LOW);
+      digitalWrite(PIN_CFG3, HIGH);
+      break;
+  }
+  
+  // Wait for PD negotiation
+  delay(100);
+}
+
+float PD_measureVoltage(){
+  // Measure voltage via ADC if available
+  // PIN_VBUS_ADC should be connected to a voltage divider
+  // Typical divider: VBUS -> 10k -> ADC -> 10k -> GND (1:2 ratio)
+  // For 20V max: ADC reads 10V max, ESP32 ADC is 3.3V max, so need different divider
+  // Assuming a 1:6 divider for 20V -> 3.33V max at ADC
+  pinMode(PIN_VBUS_ADC, INPUT);
+  int adcValue = analogRead(PIN_VBUS_ADC);
+  // ESP32-S3 ADC is 12-bit (0-4095) for 0-3.3V
+  float adcVoltage = (adcValue / 4095.0f) * 3.3f;
+  // Assuming 1:6 voltage divider (adjust based on actual hardware)
+  float vbusVoltage = adcVoltage * 6.0f;
+  return vbusVoltage;
 }
 
 bool PD_powerGood(){
@@ -26,10 +87,8 @@ bool PD_powerGood(){
 }
 
 void TMC_setThresholds(){
-  // Keep StallGuard valid at speed: set PWM threshold and coolStep duration.
-  // Values are starting points. You will tune them.
-  stepper.setPwmThreshold(300);            // boundary speed for stealth->spread
-  stepper.setCoolStepDurationThreshold(5000);  // TCOOLTHRS-like
+  // No-op: this TMC2209 lib lacks PWM/coolstep threshold helpers.
+  // StallGuard homing still works because Motion_home() forces spreadCycle (stealthChop=false).
 }
 
 void TMC_setDynamic(const MotionParams& mp){

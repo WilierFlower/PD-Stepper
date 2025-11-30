@@ -5,6 +5,7 @@
 #include "tmc_init.h"
 #include "as5600.h"
 #include "motion.h"
+#include "web_config.h"
 
 // HomeKit service wrapper
 struct BlindsService : Service::WindowCovering {
@@ -16,12 +17,15 @@ struct BlindsService : Service::WindowCovering {
   // Aux switches
   SpanService *homingSw; Characteristic::On *homingOn;
   SpanService *setBotSw; Characteristic::On *setBotOn;
+  SpanService *homeMinSw; Characteristic::On *homeMinOn;
 
   BlindsService(){
     homingSw = new Service::Switch();
     homingOn = new Characteristic::On(false);
     setBotSw = new Service::Switch();
     setBotOn = new Characteristic::On(false);
+    homeMinSw = new Service::Switch();
+    homeMinOn = new Characteristic::On(false);
   }
 
   boolean update() override {
@@ -49,6 +53,12 @@ struct BlindsService : Service::WindowCovering {
       Motion_saveNVS();
       cur.setVal(Motion_getCurrentPercent());
     }
+    if (homeMinOn->updated() && homeMinOn->getNewVal()){
+      homeMinOn->setVal(false);
+      bool sg=false; Motion_homeMin(sg);
+      cur.setVal(Motion_getCurrentPercent());
+      st.setVal(2);
+    }
     return true;
   }
 
@@ -73,11 +83,16 @@ void setup(){
   Serial.begin(115200);
   delay(150);
 
-  // Power and driver setup
-  PD_request_12V();
-  TMC_init(g_mp);
+  // Load settings first to get PD voltage
   Motion_loadNVS();
+  
+  // Power and driver setup with saved PD voltage
+  PD_setVoltage(g_mp.pdVoltage);
+  TMC_init(g_mp);
   Motion_begin();
+
+  // Start web configuration server
+  WebConfig_begin();
 
   // HomeSpan
   homeSpan.begin(Category::WindowCoverings,"PD-Stepper Blinds");
@@ -87,11 +102,13 @@ void setup(){
       new Characteristic::Manufacturer("You");
       new Characteristic::Model("PD-Stepper");
       new Characteristic::SerialNumber("0001");
-      new Characteristic::FirmwareRevision("0.1");
+      new Characteristic::FirmwareRevision("0.2");
       new Characteristic::Identify();
     svc = new BlindsService();
 
   Serial.println("\nCommands: cur/vel/acc/jerk/micro/stealth/stall");
+  Serial.println("Web config: Connect to WiFi AP 'PD-Blinds-Config' (password: config1234)");
+  Serial.println("Then open http://192.168.4.1 in your browser");
 }
 
 void loop(){
